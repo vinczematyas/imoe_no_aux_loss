@@ -49,7 +49,7 @@ def train(cfg):
 
     obs, _ = envs.reset(seed=cfg.seed+1)
 
-    for global_step in range(cfg.learning_starts, cfg.total_timesteps - cfg.learning_starts):
+    for global_step in range(cfg.learning_starts, cfg.total_timesteps):
         actions = agent.actor.get_action(torch.tensor(obs, dtype=torch.float32, device=cfg.device))
         actions = actions[0].cpu().detach().numpy()
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)

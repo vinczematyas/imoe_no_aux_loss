@@ -8,26 +8,38 @@ from stable_baselines3.common.buffers import ReplayBuffer
 import math
 
 
+LOG_STD_MAX = 2
+LOG_STD_MIN = -5
+
+
 class Actor(nn.Module):
     def __init__(self, cfg, env):
         super().__init__()
+
         self.cfg = cfg.sac
-        self.observation_shape = np.prod(env.single_observation_space.shape)
-        self.action_shape = np.prod(env.single_action_space.shape)
 
-        self.router = nn.Linear(self.observation_shape, cfg.sac.n_experts)
-        self.topk = cfg.sac.topk
+        observation_shape = np.prod(env.single_observation_space.shape)
+        action_shape = np.prod(env.single_action_space.shape)
 
-        self.mean_experts = nn.ModuleList([nn.Linear(self.observation_shape, self.action_shape) for _ in range(self.cfg.n_experts)])
-        self.log_std_experts = nn.ModuleList([nn.Linear(self.observation_shape, self.action_shape) for _ in range(self.cfg.n_experts)])
+        self.router = nn.Linear(observation_shape, self.cfg.n_experts)
+        self.topk = self.cfg.topk
 
-        self.register_buffer('episodic_expert_count', torch.zeros(cfg.sac.n_experts, dtype=int))  # for logging
+        self.mean_experts = nn.ModuleList([nn.Linear(observation_shape, action_shape) for _ in range(self.cfg.n_experts)])
+        self.log_std_experts = nn.ModuleList([nn.Linear(observation_shape, action_shape) for _ in range(self.cfg.n_experts)])
+
+        self.register_buffer("episodic_expert_count", torch.zeros(self.cfg.n_experts, dtype=int))  # for logging
+
+        self.register_buffer("router_importance", torch.zeros(self.cfg.n_experts))
+        self.register_buffer("router_load", torch.zeros(self.cfg.n_experts))
 
         # action scaling and bias
         self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))
         self.register_buffer("action_bias", torch.tensor((env.single_action_space.high + env.single_action_space.low) / 2.0, dtype=torch.float32))
-        self.LOG_STD_MAX = 2
-        self.LOG_STD_MIN = -5
+
+        self.noise_distr = torch.distributions.Normal(
+            loc=torch.tensor([0.0]*self.cfg.n_experts), scale=torch.tensor([1.0/self.cfg.n_experts]*self.cfg.n_experts)
+        )
+
 
     def forward(self, x, router_noise):
         x = x.float()
@@ -35,7 +47,16 @@ class Actor(nn.Module):
         router_logits = self.router(x)
 
         if router_noise:
-            router_logits += torch.randn_like(router_logits) / self.cfg.n_experts
+            noisy_logits = router_logits + torch.randn_like(router_logits) / self.cfg.n_experts
+
+            importance = F.softmax(noisy_logits, dim=-1).sum(0)
+            self.router_importance = (torch.std(importance)/torch.mean(importance))**2
+
+            threshold = torch.max(noisy_logits, dim=-1).values
+            load = (1 - self.noise_distr.cdf(threshold.unsqueeze(1) - router_logits)).sum(0)
+            self.router_load = (torch.std(load)/torch.mean(load))**2
+
+            router_logits = noisy_logits
 
         self.router_probs = F.softmax(router_logits, dim=-1)
 
@@ -53,7 +74,7 @@ class Actor(nn.Module):
 
         # apply action scaling and bias
         log_std = torch.tanh(log_std)
-        log_std = self.LOG_STD_MIN + 0.5 * (self.LOG_STD_MAX - self.LOG_STD_MIN) * (log_std + 1)
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
         return mean, log_std
 
     def get_action(self, x, router_noise=False):
@@ -151,6 +172,9 @@ def train_sac(cfg, sac):
             qf2_pi = sac.qf2(data.observations, pi)
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
             actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
+
+            aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
+            actor_loss += 0.01 * aux_loss
 
             sac.actor_optimizer.zero_grad()
             actor_loss.backward()
