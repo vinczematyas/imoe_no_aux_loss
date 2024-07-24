@@ -48,7 +48,7 @@ class Actor(nn.Module):
         router_logits = self.router(x)
 
         if router_noise:
-            noisy_logits = router_logits + self.router_noise(x) * F.softplus(self.router_noise(x))
+            noisy_logits = router_logits + self.noise_distr.sample()  # self.router_noise(x) * F.softplus(self.router_noise(x))
 
             importance = F.softmax(noisy_logits, dim=-1).sum(0)
             self.router_importance = (torch.std(importance)/torch.mean(importance))**2
