@@ -40,6 +40,7 @@ class Actor(nn.Module):
             loc=torch.tensor([0.0]*self.cfg.n_experts), scale=torch.tensor([1.0/self.cfg.n_experts]*self.cfg.n_experts)
         )
 
+        self.router_noise = nn.Linear(observation_shape, self.cfg.n_experts)
 
     def forward(self, x, router_noise):
         x = x.float()
@@ -47,7 +48,7 @@ class Actor(nn.Module):
         router_logits = self.router(x)
 
         if router_noise:
-            noisy_logits = router_logits + self.noise_distr.sample()  # torch.randn_like(router_logits) / self.cfg.n_experts
+            noisy_logits = router_logits + self.router_noise(x) * F.softplus(self.router_noise(x))
 
             importance = F.softmax(noisy_logits, dim=-1).sum(0)
             self.router_importance = (torch.std(importance)/torch.mean(importance))**2
@@ -58,10 +59,10 @@ class Actor(nn.Module):
 
             router_logits = noisy_logits
 
-        self.router_probs = F.softmax(router_logits, dim=-1)
+        topk_router_logits, topk_router_indices = torch.topk(router_logits, self.topk, dim=-1)
+        sparse_router_logits = torch.zeros_like(router_logits).fill_(-np.inf).scatter_(index=topk_router_indices, src=topk_router_logits, dim=-1)
 
-        topk_router_probs, topk_router_indices = torch.topk(self.router_probs, self.topk, dim=-1)
-        sparse_router_probs = torch.zeros_like(self.router_probs).scatter_(index=topk_router_indices, src=topk_router_probs, dim=-1)
+        sparse_router_probs = F.softmax(sparse_router_logits)
 
         if x.shape[0] == 1:
             self.episodic_expert_count[topk_router_indices] += 1
