@@ -115,6 +115,8 @@ SACComponents = namedtuple("SACComponents", ["actor", "qf1", "qf2", "qf1_target"
 
 def setup_sac(cfg, env):
     actor = Actor(cfg, env).to(cfg.device)
+    torch.nn.init.zeros_(actor.router.weight)
+    torch.nn.init.zeros_(actor.router_noise.weight)
     qf1 = SoftQNetwork(cfg, env).to(cfg.device)
     qf2 = SoftQNetwork(cfg, env).to(cfg.device)
     qf1_target = SoftQNetwork(cfg, env).to(cfg.device)
