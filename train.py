@@ -1,7 +1,6 @@
 import time
 import torch
 import wandb
-import numpy as np
 import gymnasium as gym
 import logging
 import os

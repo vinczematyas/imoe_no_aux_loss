@@ -40,15 +40,13 @@ class Actor(nn.Module):
             loc=torch.tensor([0.0]*self.cfg.n_experts), scale=torch.tensor([1.0/self.cfg.n_experts]*self.cfg.n_experts)
         )
 
-        self.router_noise = nn.Linear(observation_shape, self.cfg.n_experts)
-
     def forward(self, x, router_noise):
         x = x.float()
 
         router_logits = self.router(x)
 
         if router_noise:
-            noisy_logits = router_logits + self.router_noise(x) * F.softplus(self.router_noise(x))
+            noisy_logits = router_logits + self.noise_distr.sample()
 
             importance = F.softmax(noisy_logits, dim=-1).sum(0)
             self.router_importance = (torch.std(importance)/torch.mean(importance))**2
@@ -115,8 +113,6 @@ SACComponents = namedtuple("SACComponents", ["actor", "qf1", "qf2", "qf1_target"
 
 def setup_sac(cfg, env):
     actor = Actor(cfg, env).to(cfg.device)
-    torch.nn.init.zeros_(actor.router.weight)
-    torch.nn.init.zeros_(actor.router_noise.weight)
     qf1 = SoftQNetwork(cfg, env).to(cfg.device)
     qf2 = SoftQNetwork(cfg, env).to(cfg.device)
     qf1_target = SoftQNetwork(cfg, env).to(cfg.device)
