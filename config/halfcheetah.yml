@@ -1,5 +1,5 @@
 seed: 420
-env_id: Walker2d-v4
+env_id: HalfCheetah-v4
 device: cpu
 total_timesteps: 1_000_000
 learning_starts: 10_000
