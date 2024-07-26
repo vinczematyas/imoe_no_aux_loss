@@ -12,6 +12,7 @@ LOG_STD_MAX = 2
 LOG_STD_MIN = -5
 
 
+'''
 class MLPActor(nn.Module):
     def __init__(self, cfg, env):
         super().__init__()
@@ -54,6 +55,7 @@ class MLPActor(nn.Module):
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias  # scale to environment's range
         return action, log_prob, mean
+'''
 
 
 class Actor(nn.Module):
@@ -156,7 +158,7 @@ class SoftQNetwork(nn.Module):
 SACComponents = namedtuple("SACComponents", ["actor", "qf1", "qf2", "qf1_target", "qf2_target", "q_optimizer", "actor_optimizer", "rb", "target_entropy", "log_alpha", "a_optimizer", "counter"])
 
 def setup_sac(cfg, env):
-    actor = MLPActor(cfg, env).to(cfg.device)
+    actor = Actor(cfg, env).to(cfg.device)
     qf1 = SoftQNetwork(cfg, env).to(cfg.device)
     qf2 = SoftQNetwork(cfg, env).to(cfg.device)
     qf1_target = SoftQNetwork(cfg, env).to(cfg.device)
@@ -216,8 +218,8 @@ def train_sac(cfg, sac):
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
             actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
-            # aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
-            # actor_loss += 0.01 * aux_loss
+            aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
+            actor_loss += 0.01 * aux_loss
 
             sac.actor_optimizer.zero_grad()
             actor_loss.backward()
