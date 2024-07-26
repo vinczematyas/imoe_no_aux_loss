@@ -173,7 +173,7 @@ def train_sac(cfg, sac):
             actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
             aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
-            actor_loss += 0.01 * aux_loss
+            actor_loss += 1.0 * aux_loss
 
             sac.actor_optimizer.zero_grad()
             actor_loss.backward()
