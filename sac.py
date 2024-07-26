@@ -12,6 +12,50 @@ LOG_STD_MAX = 2
 LOG_STD_MIN = -5
 
 
+class MLPActor(nn.Module):
+    def __init__(self, cfg, env):
+        super().__init__()
+
+        self.cfg = cfg.sac
+
+        observation_shape = np.prod(env.single_observation_space.shape)
+        action_shape = np.prod(env.single_action_space.shape)
+
+        hidden_dim = math.ceil((8 * observation_shape * (1 + action_shape)) / (observation_shape + 2 * action_shape))
+        self.fc = nn.Linear(observation_shape, hidden_dim)
+        self.fc_mean = nn.Linear(hidden_dim, action_shape)
+        self.fc_log_std = nn.Linear(hidden_dim, action_shape)
+
+        self.register_buffer("episodic_expert_count", torch.zeros(self.cfg.n_experts, dtype=int))
+
+        # action scaling and bias
+        self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))
+        self.register_buffer("action_bias", torch.tensor((env.single_action_space.high + env.single_action_space.low) / 2.0, dtype=torch.float32))
+
+    def forward(self, x, router_noise):  # router_noise not used
+        x = x.float()
+        x = F.relu(self.fc(x))
+        mean = self.fc_mean(x)
+        log_std = self.fc_log_std(x)
+
+        # apply action scaling and bias
+        log_std = torch.tanh(log_std)
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
+        return mean, log_std
+
+    def get_action(self, x, router_noise=False):
+        mean, log_std = self(x, router_noise)
+        std = log_std.exp()
+        x_t = torch.randn_like(mean) * std + mean  # faster than torch.distributions.Normal(mean, std).rsample()
+        y_t = torch.tanh(x_t)  # scale to -1, 1
+        action = y_t * self.action_scale + self.action_bias  # scale to environment's range
+        log_prob = -0.5 * ((x_t - mean) / std).pow(2) - std.log() - 0.5 * math.log(2 * math.pi)  # gaussian log likelihood
+        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)  # adjustment for tanh
+        log_prob = log_prob.sum(1, keepdim=True)
+        mean = torch.tanh(mean) * self.action_scale + self.action_bias  # scale to environment's range
+        return action, log_prob, mean
+
+
 class Actor(nn.Module):
     def __init__(self, cfg, env):
         super().__init__()
@@ -112,7 +156,7 @@ class SoftQNetwork(nn.Module):
 SACComponents = namedtuple("SACComponents", ["actor", "qf1", "qf2", "qf1_target", "qf2_target", "q_optimizer", "actor_optimizer", "rb", "target_entropy", "log_alpha", "a_optimizer", "counter"])
 
 def setup_sac(cfg, env):
-    actor = Actor(cfg, env).to(cfg.device)
+    actor = MLPActor(cfg, env).to(cfg.device)
     qf1 = SoftQNetwork(cfg, env).to(cfg.device)
     qf2 = SoftQNetwork(cfg, env).to(cfg.device)
     qf1_target = SoftQNetwork(cfg, env).to(cfg.device)
@@ -172,8 +216,8 @@ def train_sac(cfg, sac):
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
             actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
-            aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
-            actor_loss += 0.01 * aux_loss
+            # aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
+            # actor_loss += 0.01 * aux_loss
 
             sac.actor_optimizer.zero_grad()
             actor_loss.backward()
