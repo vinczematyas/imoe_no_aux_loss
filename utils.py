@@ -57,8 +57,6 @@ def fix_seed(seed, env = None):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
     if env is not None:
         env.action_space.seed(seed)
         env.observation_space.seed(seed)

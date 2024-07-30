@@ -24,10 +24,12 @@ def log_episode_info(cfg, global_step, info, agent):
 
 
 def train(cfg):
-    envs = gym.vector.SyncVectorEnv([lambda: gym.wrappers.RecordEpisodeStatistics(gym.make(cfg.env_id))])
-    agent = setup_sac(cfg, envs)
+    env = gym.make(cfg.env_id)
+    env.action_space.seed(cfg.seed)
+    env.observation_space.seed(cfg.seed)
+    envs = gym.vector.SyncVectorEnv([lambda: gym.wrappers.RecordEpisodeStatistics(env)])
 
-    fix_seed(cfg.seed, envs)
+    agent = setup_sac(cfg, envs)
 
     # load checkpoint or initialize replay buffer with random actions
     if cfg.checkpoint:
@@ -84,7 +86,9 @@ def train(cfg):
 
 
 if __name__ == "__main__":
+    import numpy as np
     import argparse
+    import random
 
     # ---- ARGS ----
 
@@ -113,6 +117,10 @@ if __name__ == "__main__":
     cfg.sac.update(**vars(args))
     if args.cuda:
         cfg.device = "cuda"
+
+    random.seed(cfg.seed)
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
 
     # ---- LOGGING ----
 

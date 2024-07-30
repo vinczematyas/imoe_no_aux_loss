@@ -75,8 +75,8 @@ class Actor(nn.Module):
 
         self.register_buffer("episodic_expert_count", torch.zeros(self.cfg.n_experts, dtype=int))  # for logging
 
-        self.register_buffer("router_importance", torch.zeros(self.cfg.n_experts))
-        self.register_buffer("router_load", torch.zeros(self.cfg.n_experts))
+        self.register_buffer("router_importance", torch.tensor(0.0))
+        self.register_buffer("router_load", torch.tensor(0.0))
 
         # action scaling and bias
         self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))
@@ -122,10 +122,10 @@ class Actor(nn.Module):
         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
         return mean, log_std
 
-    def get_action(self, x, router_noise=False):
+    def get_action(self, x, router_noise=False, deterministic=False):
         mean, log_std = self(x, router_noise)
         std = log_std.exp()
-        x_t = torch.randn_like(mean) * std + mean  # faster than torch.distributions.Normal(mean, std).rsample()
+        x_t = torch.randn_like(mean) * std + mean if not deterministic else mean
         y_t = torch.tanh(x_t)  # scale to -1, 1
         action = y_t * self.action_scale + self.action_bias  # scale to environment's range
         log_prob = -0.5 * ((x_t - mean) / std).pow(2) - std.log() - 0.5 * math.log(2 * math.pi)  # gaussian log likelihood
