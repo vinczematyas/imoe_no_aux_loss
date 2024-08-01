@@ -77,6 +77,7 @@ class Actor(nn.Module):
 
         self.register_buffer("router_importance", torch.tensor(0.0))
         self.register_buffer("router_load", torch.tensor(0.0))
+        self.register_buffer("z_loss", torch.tensor(0.0))
 
         # action scaling and bias
         self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))
@@ -102,6 +103,8 @@ class Actor(nn.Module):
             self.router_load = (torch.std(load)/torch.mean(load))**2
 
             router_logits = noisy_logits
+
+            self.z_loss = (1 / x.shape[0]) * torch.square(torch.exp(router_logits).sum(1)).sum(0)
 
         self.router_probs = F.softmax(router_logits, dim=-1)
 
@@ -218,8 +221,8 @@ def train_sac(cfg, sac):
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
             actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
-            aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
-            actor_loss += 0.01 * aux_loss
+            # aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
+            actor_loss += 0.001 * sac.actor.z_loss  # aux_loss
 
             sac.actor_optimizer.zero_grad()
             actor_loss.backward()
