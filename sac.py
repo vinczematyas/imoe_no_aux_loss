@@ -93,16 +93,16 @@ class Actor(nn.Module):
         if router_noise:
             noisy_logits = router_logits + self.noise_distr.sample()
 
-            # importance = F.softmax(noisy_logits, dim=-1).sum(0)
-            # self.router_importance = (torch.std(importance)/torch.mean(importance))**2
+            importance = F.softmax(noisy_logits, dim=-1).sum(0)
+            self.router_importance = (torch.std(importance)/torch.mean(importance))**2
 
-            # threshold = torch.max(noisy_logits, dim=-1).values
-            # load = (1 - self.noise_distr.cdf(threshold.unsqueeze(1) - router_logits)).sum(0)
-            # self.router_load = (torch.std(load)/torch.mean(load))**2
+            threshold = torch.max(noisy_logits, dim=-1).values
+            load = (1 - self.noise_distr.cdf(threshold.unsqueeze(1) - router_logits)).sum(0)
+            self.router_load = (torch.std(load)/torch.mean(load))**2
 
             router_logits = noisy_logits
 
-            self.z_loss = (1 / x.shape[0]) * torch.square(torch.exp(router_logits).sum(1)).sum(0)
+            # self.z_loss = (1 / x.shape[0]) * torch.square(torch.exp(router_logits).sum(1)).sum(0)
 
         self.router_probs = F.softmax(router_logits, dim=-1)
 
@@ -219,8 +219,8 @@ def train_sac(cfg, sac):
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
             actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
-            # aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
-            actor_loss += 0.001 * sac.actor.z_loss  # aux_loss
+            aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
+            actor_loss += 0.1 * aux_loss  #  0.001 * sac.actor.z_loss
 
             sac.actor_optimizer.zero_grad()
             actor_loss.backward()
