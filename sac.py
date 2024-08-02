@@ -21,10 +21,11 @@ class MLPActor(nn.Module):
         observation_shape = np.prod(env.single_observation_space.shape)
         action_shape = np.prod(env.single_action_space.shape)
 
-        hidden_dim = math.ceil((8 * observation_shape * (1 + action_shape)) / (observation_shape + 2 * action_shape))
-        self.fc = nn.Linear(observation_shape, hidden_dim)
-        self.fc_mean = nn.Linear(hidden_dim, action_shape)
-        self.fc_log_std = nn.Linear(hidden_dim, action_shape)
+        # hidden_dim = math.ceil((8 * observation_shape * (1 + action_shape)) / (observation_shape + 2 * action_shape))
+        self.fc = nn.Linear(observation_shape, 256)  # hidden_dim)
+        self.fc1 = nn.Linear(256, 256)
+        self.fc_mean = nn.Linear(256, action_shape)
+        self.fc_log_std = nn.Linear(256, action_shape)
 
         self.register_buffer("episodic_expert_count", torch.zeros(self.cfg.n_experts, dtype=int))
 
@@ -35,6 +36,7 @@ class MLPActor(nn.Module):
     def forward(self, x, router_noise):  # router_noise not used
         x = x.float()
         x = F.relu(self.fc(x))
+        x = F.relu(self.fc1(x))
         mean = self.fc_mean(x)
         log_std = self.fc_log_std(x)
 
@@ -44,7 +46,7 @@ class MLPActor(nn.Module):
         return mean, log_std
 
     def get_action(self, x, router_noise=False, deterministic=False):
-        mean, log_std = self(x)
+        mean, log_std = self(x, router_noise)
         std = log_std.exp()
         x_t = torch.randn_like(mean) * std + mean if not deterministic else mean
         y_t = torch.tanh(x_t)  # scale to -1, 1
@@ -219,8 +221,8 @@ def train_sac(cfg, sac):
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
             actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
-            aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
-            actor_loss += 0.1 * aux_loss  #  0.001 * sac.actor.z_loss
+            # aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
+            # actor_loss += 0.1 * aux_loss  #  0.001 * sac.actor.z_loss
 
             sac.actor_optimizer.zero_grad()
             actor_loss.backward()

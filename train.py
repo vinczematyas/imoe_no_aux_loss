@@ -29,7 +29,7 @@ def train(cfg):
     env.observation_space.seed(cfg.seed)
     envs = gym.vector.SyncVectorEnv([lambda: gym.wrappers.RecordEpisodeStatistics(env)])
 
-    agent = setup_sac(cfg, envs)
+    agent = setup_sac(cfg, envs, nonlin_actor=True)
 
     # load checkpoint or initialize replay buffer with random actions
     if cfg.checkpoint:
