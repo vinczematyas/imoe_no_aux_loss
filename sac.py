@@ -12,7 +12,6 @@ LOG_STD_MAX = 2
 LOG_STD_MIN = -5
 
 
-'''
 class MLPActor(nn.Module):
     def __init__(self, cfg, env):
         super().__init__()
@@ -44,10 +43,10 @@ class MLPActor(nn.Module):
         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
         return mean, log_std
 
-    def get_action(self, x, router_noise=False):
-        mean, log_std = self(x, router_noise)
+    def get_action(self, x, router_noise=False, deterministic=False):
+        mean, log_std = self(x)
         std = log_std.exp()
-        x_t = torch.randn_like(mean) * std + mean  # faster than torch.distributions.Normal(mean, std).rsample()
+        x_t = torch.randn_like(mean) * std + mean if not deterministic else mean
         y_t = torch.tanh(x_t)  # scale to -1, 1
         action = y_t * self.action_scale + self.action_bias  # scale to environment's range
         log_prob = -0.5 * ((x_t - mean) / std).pow(2) - std.log() - 0.5 * math.log(2 * math.pi)  # gaussian log likelihood
@@ -55,7 +54,6 @@ class MLPActor(nn.Module):
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias  # scale to environment's range
         return action, log_prob, mean
-'''
 
 
 class Actor(nn.Module):
@@ -95,12 +93,12 @@ class Actor(nn.Module):
         if router_noise:
             noisy_logits = router_logits + self.noise_distr.sample()
 
-            importance = F.softmax(noisy_logits, dim=-1).sum(0)
-            self.router_importance = (torch.std(importance)/torch.mean(importance))**2
+            # importance = F.softmax(noisy_logits, dim=-1).sum(0)
+            # self.router_importance = (torch.std(importance)/torch.mean(importance))**2
 
-            threshold = torch.max(noisy_logits, dim=-1).values
-            load = (1 - self.noise_distr.cdf(threshold.unsqueeze(1) - router_logits)).sum(0)
-            self.router_load = (torch.std(load)/torch.mean(load))**2
+            # threshold = torch.max(noisy_logits, dim=-1).values
+            # load = (1 - self.noise_distr.cdf(threshold.unsqueeze(1) - router_logits)).sum(0)
+            # self.router_load = (torch.std(load)/torch.mean(load))**2
 
             router_logits = noisy_logits
 
@@ -160,8 +158,8 @@ class SoftQNetwork(nn.Module):
 
 SACComponents = namedtuple("SACComponents", ["actor", "qf1", "qf2", "qf1_target", "qf2_target", "q_optimizer", "actor_optimizer", "rb", "target_entropy", "log_alpha", "a_optimizer", "counter"])
 
-def setup_sac(cfg, env):
-    actor = Actor(cfg, env).to(cfg.device)
+def setup_sac(cfg, env, nonlin_actor = False):
+    actor = Actor(cfg, env).to(cfg.device) if not nonlin_actor else MLPActor(cfg, env).to(cfg.device)
     qf1 = SoftQNetwork(cfg, env).to(cfg.device)
     qf2 = SoftQNetwork(cfg, env).to(cfg.device)
     qf1_target = SoftQNetwork(cfg, env).to(cfg.device)

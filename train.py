@@ -6,7 +6,7 @@ import logging
 import os
 
 from sac import train_sac, setup_sac
-from utils import fix_seed, init_cfg, save_agent, load_agent
+from utils import init_cfg, save_agent, load_agent
 
 
 def log_episode_info(cfg, global_step, info, agent):
@@ -71,7 +71,7 @@ def train(cfg):
 
         train_sac(cfg, agent)
 
-        if (global_step + 1) % int(1e4) == 0:  # cfg.log.save_models and
+        if cfg.log.save_models and (global_step + 1) % int(1e4) == 0:
             training_finished = global_step + 1 == cfg.total_timesteps
             checkpoint = f"checkpoint_{'final' if training_finished else f'{(global_step+1)//1000}k'}"
             save_agent(

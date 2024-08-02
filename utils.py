@@ -1,7 +1,5 @@
 from safetensors.torch import save_model, load_model
 import numpy as np
-import torch
-import random
 import yaml
 import os
 
@@ -52,16 +50,6 @@ def init_cfg(path):
     return NestedNamespace(**cfg)
 
 
-def fix_seed(seed, env = None):
-    """Fix the seed for reproducibility"""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if env is not None:
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
-
-
 def save_agent(agent, path, save_obs=False):
     """Save the agent and observations from the replay buffer"""
     os.makedirs(path, exist_ok=True)
@@ -87,4 +75,3 @@ def load_agent(agent, path):
         return agent, np.load(f"{path}/observations.npz")["array"]
     else:
         return agent, None
-
