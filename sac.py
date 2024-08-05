@@ -16,18 +16,29 @@ class MLPActor(nn.Module):
     def __init__(self, cfg, env):
         super().__init__()
 
-        self.cfg = cfg.sac
-
         observation_shape = np.prod(env.single_observation_space.shape)
         action_shape = np.prod(env.single_action_space.shape)
 
-        # hidden_dim = math.ceil((8 * observation_shape * (1 + action_shape)) / (observation_shape + 2 * action_shape))
-        self.fc = nn.Linear(observation_shape, 256)  # hidden_dim)
-        self.fc1 = nn.Linear(256, 256)
-        self.fc_mean = nn.Linear(256, action_shape)
-        self.fc_log_std = nn.Linear(256, action_shape)
+        if cfg.sac.nonlinear_actor_size == "full":
+            self.encoder = nn.Sequential(
+                nn.Linear(observation_shape, 256),
+                nn.ReLU(),
+                nn.Linear(256, 256)
+            )
+            encoder_out_dim = 256
+        else:
+            if cfg.sac.nonlinear_actor_size == "small":
+                encoder_out_dim = math.ceil((8 * observation_shape * (1 + action_shape)) / (observation_shape + 2 * action_shape))
+            elif cfg.sac.nonlinear_actor_size == "mini":
+                encoder_out_dim = math.ceil((1 * observation_shape * (1 + action_shape)) / (observation_shape + 2 * action_shape))
+            else:
+                assert False, f"nonlinear_actor_size has to be mini, small or full."
+            self.encoder = nn.Linear(observation_shape, encoder_out_dim)
 
-        self.register_buffer("episodic_expert_count", torch.zeros(self.cfg.n_experts, dtype=int))
+        self.fc_mean = nn.Linear(encoder_out_dim, action_shape)
+        self.fc_log_std = nn.Linear(encoder_out_dim, action_shape)
+
+        self.register_buffer("episodic_expert_count", torch.zeros(cfg.sac.n_experts, dtype=int))
 
         # action scaling and bias
         self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))
@@ -35,8 +46,7 @@ class MLPActor(nn.Module):
 
     def forward(self, x, router_noise):  # router_noise not used
         x = x.float()
-        x = F.relu(self.fc(x))
-        x = F.relu(self.fc1(x))
+        x = F.relu(self.encoder(x))
         mean = self.fc_mean(x)
         log_std = self.fc_log_std(x)
 
@@ -62,18 +72,16 @@ class Actor(nn.Module):
     def __init__(self, cfg, env):
         super().__init__()
 
-        self.cfg = cfg.sac
-
         observation_shape = np.prod(env.single_observation_space.shape)
         action_shape = np.prod(env.single_action_space.shape)
 
-        self.router = nn.Linear(observation_shape, self.cfg.n_experts)
-        self.topk = self.cfg.topk
+        self.router = nn.Linear(observation_shape, cfg.sac.n_experts)
+        self.topk = cfg.sac.topk
 
-        self.mean_experts = nn.ModuleList([nn.Linear(observation_shape, action_shape) for _ in range(self.cfg.n_experts)])
-        self.log_std_experts = nn.ModuleList([nn.Linear(observation_shape, action_shape) for _ in range(self.cfg.n_experts)])
+        self.mean_experts = nn.ModuleList([nn.Linear(observation_shape, action_shape) for _ in range(cfg.sac.n_experts)])
+        self.log_std_experts = nn.ModuleList([nn.Linear(observation_shape, action_shape) for _ in range(cfg.sac.n_experts)])
 
-        self.register_buffer("episodic_expert_count", torch.zeros(self.cfg.n_experts, dtype=int))  # for logging
+        self.register_buffer("episodic_expert_count", torch.zeros(cfg.sac.n_experts, dtype=int))  # for logging
 
         self.register_buffer("router_importance", torch.tensor(0.0))
         self.register_buffer("router_load", torch.tensor(0.0))
@@ -84,7 +92,7 @@ class Actor(nn.Module):
         self.register_buffer("action_bias", torch.tensor((env.single_action_space.high + env.single_action_space.low) / 2.0, dtype=torch.float32))
 
         self.noise_distr = torch.distributions.Normal(
-            loc=torch.tensor([0.0]*self.cfg.n_experts), scale=torch.tensor([1.0/self.cfg.n_experts]*self.cfg.n_experts)
+            loc=torch.tensor([0.0]*cfg.sac.n_experts), scale=torch.tensor([1.0/cfg.sac.n_experts]*cfg.sac.n_experts)
         )
 
     def forward(self, x, router_noise):
@@ -104,7 +112,7 @@ class Actor(nn.Module):
 
             router_logits = noisy_logits
 
-            # self.z_loss = (1 / x.shape[0]) * torch.square(torch.exp(router_logits).sum(1)).sum(0)
+            self.z_loss = (1 / x.shape[0]) * torch.square(torch.exp(router_logits).sum(1)).sum(0)
 
         self.router_probs = F.softmax(router_logits, dim=-1)
 
@@ -160,8 +168,8 @@ class SoftQNetwork(nn.Module):
 
 SACComponents = namedtuple("SACComponents", ["actor", "qf1", "qf2", "qf1_target", "qf2_target", "q_optimizer", "actor_optimizer", "rb", "target_entropy", "log_alpha", "a_optimizer", "counter"])
 
-def setup_sac(cfg, env, nonlin_actor = False):
-    actor = Actor(cfg, env).to(cfg.device) if not nonlin_actor else MLPActor(cfg, env).to(cfg.device)
+def setup_sac(cfg, env):
+    actor = Actor(cfg, env).to(cfg.device) if not cfg.sac.nonlinear_actor else MLPActor(cfg, env).to(cfg.device)
     qf1 = SoftQNetwork(cfg, env).to(cfg.device)
     qf2 = SoftQNetwork(cfg, env).to(cfg.device)
     qf1_target = SoftQNetwork(cfg, env).to(cfg.device)
@@ -221,8 +229,12 @@ def train_sac(cfg, sac):
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
             actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
-            # aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
-            # actor_loss += 0.1 * aux_loss  #  0.001 * sac.actor.z_loss
+            if not cfg.sac.nonlinear_actor:
+                if cfg.sac.aux_loss == "vision":
+                    aux_loss = 0.5 * sac.actor.router_importance + 0.5 * sac.actor.router_load
+                elif cfg.sac.aux_loss == "z":
+                    aux_loss = sac.actor.z_loss
+                actor_loss += cfg.sac.aux_loss_weight * aux_loss
 
             sac.actor_optimizer.zero_grad()
             actor_loss.backward()

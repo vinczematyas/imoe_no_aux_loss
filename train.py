@@ -29,7 +29,7 @@ def train(cfg):
     env.observation_space.seed(cfg.seed)
     envs = gym.vector.SyncVectorEnv([lambda: gym.wrappers.RecordEpisodeStatistics(env)])
 
-    agent = setup_sac(cfg, envs, nonlin_actor=True)
+    agent = setup_sac(cfg, envs)
 
     # load checkpoint or initialize replay buffer with random actions
     if cfg.checkpoint:
@@ -71,7 +71,7 @@ def train(cfg):
 
         train_sac(cfg, agent)
 
-        if cfg.log.save_models and (global_step + 1) % int(1e4) == 0:
+        if cfg.log.save_models and (global_step + 1) % int(5e4) == 0:
             training_finished = global_step + 1 == cfg.total_timesteps
             checkpoint = f"checkpoint_{'final' if training_finished else f'{(global_step+1)//1000}k'}"
             save_agent(
@@ -107,6 +107,10 @@ if __name__ == "__main__":
     # sac args
     parser.add_argument("--n_experts", type=int)
     parser.add_argument("--topk", type=int)
+    parser.add_argument("--nonlinear_actor", action="store_true")
+    parser.add_argument("--nonlinear_actor_size", type=str)
+    parser.add_argument("--aux_loss", type=str)
+    parser.add_argument("--aux_loss_weight", type=float)
     args = parser.parse_args()
 
     # load config
