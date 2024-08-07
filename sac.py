@@ -28,9 +28,9 @@ class MLPActor(nn.Module):
             encoder_out_dim = 256
         else:
             if cfg.sac.nonlinear_actor_size == "small":
-                encoder_out_dim = math.ceil((8 * observation_shape * (1 + 2 * action_shape)) / (observation_shape + 2 * action_shape))
+                encoder_out_dim = math.ceil((cfg.sac.n_experts * observation_shape * (1 + 2 * action_shape)) / (observation_shape + 2 * action_shape))
             elif cfg.sac.nonlinear_actor_size == "mini":
-                encoder_out_dim = math.ceil((1 * observation_shape * (1 + 2 * action_shape)) / (observation_shape + 2 * action_shape))
+                encoder_out_dim = math.ceil((observation_shape * (cfg.sac.n_experts + 2 * action_shape)) / (observation_shape + 2 * action_shape))
             else:
                 assert False, f"nonlinear_actor_size has to be mini, small or full."
             self.encoder = nn.Linear(observation_shape, encoder_out_dim)
