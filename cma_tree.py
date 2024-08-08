@@ -97,8 +97,8 @@ if __name__ == "__main__":
             expert_idx = agent.actor.router(torch.tensor(batch, dtype=torch.float32, device=cfg.device)).cpu().detach().numpy()
             y.append(np.argmax(expert_idx, -1))
 
-    X = X.squeeze()[:100]
-    y = np.concatenate(y)[:100]
+    X = X.squeeze()
+    y = np.concatenate(y)
 
     mean, std = X.mean(0), X.std(0)
     X = (X - mean)/(std)
